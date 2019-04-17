@@ -40,8 +40,8 @@ export function makeShader(
   const prefixSnippets: string[] = [];
   variableNames.forEach((x, i) => {
     prefixSnippets.push(`
-      layout(std430, set = 0, binding = ${i}) readonly buffer ssb${x} {
-        ${mapToGlslTypes(inputTypes[i])} ${x}[];
+      layout(std430, set = 0, binding = ${i}) readonly buffer ssbIn${i} {
+        ${mapToGlslTypes(inputTypes[i])} ${x};
       };
     `);
   });

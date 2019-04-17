@@ -22,7 +22,7 @@ export class MultiplyProgram implements WebGPUProgram {
   outputShape: number[];
   userCode: string;
   dispatch: [number, number, number];
-  variableNames = ['A', 'B'];
+  variableNames = ['A[]', 'B[]'];
 
   constructor(outputShape: number[]) {
     this.outputShape = outputShape;
