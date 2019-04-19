@@ -49,7 +49,11 @@ export class WebGPUBackend extends KernelBackend {
   shaderc: shaderc.Shaderc;
   compiler: shaderc.Compiler;
   compileOpts: shaderc.CompileOptions;
-  commandQueue: GPUCommandEncoder[];
+  currentEncoder: {
+    encoder: GPUCommandEncoder,
+    pass: GPUComputePassEncoder,
+    pipeline?: GPUComputePipeline,
+  };
 
   private binaryCache: {[key: string]: WebGPUBinary};
 
@@ -58,12 +62,20 @@ export class WebGPUBackend extends KernelBackend {
     this.binaryCache = {};
     this.device = device;
     this.queue = device.getQueue();
-    this.commandQueue = [];
     this.shaderc = shaderc;
     this.compiler = new shaderc.Compiler();
     const opts = new shaderc.CompileOptions();
     opts.SetOptimizationLevel(shaderc.optimization_level.performance);
     this.compileOpts = opts;
+    this.newEncoder();
+  }
+
+  private newEncoder() {
+    const encoder = this.device.createCommandEncoder({});
+    this.currentEncoder = {
+      encoder,
+      pass: encoder.beginComputePass()
+    };
   }
 
   floatPrecision(): 32 {
@@ -114,9 +126,7 @@ export class WebGPUBackend extends KernelBackend {
   }
 
   private submitQueue() {
-    this.queue.submit(this.commandQueue.map(enc => enc.finish()));
-
-    this.commandQueue = [];
+    this.queue.submit([this.currentEncoder.encoder.finish()]);
   }
 
   private async getBufferData(info: TensorInfo): Promise<ArrayBuffer> {
@@ -127,10 +137,11 @@ export class WebGPUBackend extends KernelBackend {
       usage: GPUBufferUsage.TRANSFER_DST | GPUBufferUsage.MAP_READ,
     });
     {
+      this.submitQueue();
       const encoder = this.device.createCommandEncoder({});
       encoder.copyBufferToBuffer(info.buffer, 0, staging, 0, size);
-      this.commandQueue.push(encoder);
-      this.submitQueue();
+      this.queue.submit([encoder.finish()]);
+      this.newEncoder();
     }
     const mapped: ArrayBuffer = await staging.mapReadAsync();
 
@@ -197,17 +208,17 @@ export class WebGPUBackend extends KernelBackend {
       bindings: bindings.map((b, i) => ({binding: i, ...b})),
     });
 
-    const encoder = this.device.createCommandEncoder({});
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(pipeline);
+    const pass = this.currentEncoder.pass;
+    if (this.currentEncoder.pipeline != pipeline) {
+      pass.setPipeline(pipeline);
+    }
     pass.setBindGroup(0, bg);
     pass.dispatch(
         program.dispatch[0], program.dispatch[1], program.dispatch[2]);
-    pass.endPass();
-    this.commandQueue.push(encoder);
 
     if (ENV.get('WEBGPU_IMMEDIATE_EXECUTION_ENABLED')) {
       this.submitQueue();
+      this.newEncoder();
     }
     return output as {} as K;
   }
