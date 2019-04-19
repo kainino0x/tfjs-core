@@ -71,4 +71,23 @@ describe('Ops benchmarks', () => {
       await waitFence();
     });
   }, 60000);
+
+  xit('conv2d', async () => {
+    let a = tf.randomNormal<tf.Rank.R4>([1, 250, 250, 1]);
+    const b = tf.randomNormal<tf.Rank.R4>([25, 25, 1, 1]);
+
+    for (let i = 0; i < 5; i++) {
+      const c = tf.conv2d(a, b, 1, 'same');
+      a.dispose();
+      a = c;
+    }
+    await waitFence();
+
+    await time(100, async () => {
+      const c = tf.conv2d(a, b, 1, 'same');
+      a.dispose();
+      a = c;
+      await waitFence();
+    });
+  }, 60000);
 });

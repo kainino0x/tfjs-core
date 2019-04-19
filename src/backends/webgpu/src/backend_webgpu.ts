@@ -19,17 +19,19 @@
 
 import './flags_webgpu';
 
-import {DataMover, DataType, ENV, KernelBackend, Rank, ShapeMap, Tensor, tensor1d, Tensor3D, util} from '@tensorflow/tfjs-core';
+import {DataMover, DataType, ENV, KernelBackend, Rank, ShapeMap, Tensor, tensor1d, Tensor3D, Tensor4D, util} from '@tensorflow/tfjs-core';
 import * as shaderc from '@webgpu/shaderc';
 
 import * as binary_op from './kernels/binary_op_webgpu';
 import {BinaryOpProgram} from './kernels/binary_op_webgpu';
+import {Conv2DProgram} from './kernels/conv2d_webgpu';
 import {MatMulProgram} from './kernels/matmul_webgpu';
 import {PadProgram} from './kernels/pad_webgpu';
 import * as unary_op from './kernels/unary_op_webgpu';
 import {UnaryOpProgram} from './kernels/unary_op_webgpu';
 import * as webgpu_program from './kernels/webgpu_program';
 import {WebGPUBinary} from './kernels/webgpu_program';
+import {Conv2DInfo} from '@tensorflow/tfjs-core/dist/ops/conv_util';
 
 type TensorInfo = {
   shape: number[],
@@ -221,6 +223,27 @@ export class WebGPUBackend extends KernelBackend {
     const program = new BinaryOpProgram(binary_op.ADD, output.shape);
 
     return this.compileAndRun(program, output, [a, b]) as Tensor;
+  }
+
+  conv2d(x: Tensor4D, filter: Tensor4D, convInfo: Conv2DInfo): Tensor4D {
+    const program = new Conv2DProgram(convInfo);
+    const output = Tensor.make(convInfo.outShape, {}, x.dtype, this) as Tensor4D;
+
+    const pad = convInfo.padInfo.type === 'VALID' ? [0, 0] :
+        convInfo.padInfo.type === 'SAME' ? [
+          -Math.floor((convInfo.filterShape[0] - 1) / 2),
+          -Math.floor((convInfo.filterShape[1] - 1) / 2) ] :
+        [convInfo.padInfo.top, convInfo.padInfo.left];
+    const dimensions =
+      tensor1d([
+        ...convInfo.inShape,
+        ...convInfo.outShape,
+        convInfo.filterHeight, convInfo.filterWidth,
+        ...pad,
+        convInfo.strideHeight, convInfo.strideWidth,
+      ], 'int32');
+
+    return this.compileAndRun(program, output, [x, filter], dimensions) as Tensor4D;
   }
 
   multiply(a: Tensor, b: Tensor): Tensor {
