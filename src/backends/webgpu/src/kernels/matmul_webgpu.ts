@@ -37,10 +37,10 @@ export class MatMulProgram implements WebGPUProgram {
       shared float Bsub[TileSize.x][TileSize.x];
 
       void main() {
-        uint localRow = gl_LocalInvocationID.x; // < TileSize.x
-        uint localCol = gl_LocalInvocationID.y; // < TileSize.x
-        uint globalRow = TileSize.x*gl_WorkGroupID.x + localRow; // < dimAOuter
-        uint globalCol = TileSize.x*gl_WorkGroupID.y + localCol; // < dimInner
+        uint localRow = gl_LocalInvocationID.y; // < TileSize.x
+        uint localCol = gl_LocalInvocationID.x; // < TileSize.x
+        uint globalRow = TileSize.x*gl_WorkGroupID.y + localRow; // < dimAOuter
+        uint globalCol = TileSize.x*gl_WorkGroupID.x + localCol; // < dimInner
 
         float acc = 0.0;
 
