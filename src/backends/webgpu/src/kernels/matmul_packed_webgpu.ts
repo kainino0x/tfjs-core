@@ -28,8 +28,8 @@ export function makeMatMulPackedSource(workPerThread: number): string {
     const uint WorkPerThread = ${workPerThread};
     const uint MatTileSize = WorkGroupSize * WorkPerThread;
 
-    shared float mm_Asub[MatTileSize][MatTileSize];
-    shared float mm_Bsub[MatTileSize][MatTileSize];
+    shared float mm_Asub[MatTileSize][MatTileSize + 1];
+    shared float mm_Bsub[MatTileSize][MatTileSize + 1];
 
     void mm_matMul(uint dimAOuter, uint dimInner, uint dimBOuter) {
       // These are 0..MatTileSize, in increments of WorkPerThread.
@@ -43,9 +43,6 @@ export function makeMatMulPackedSource(workPerThread: number): string {
       uint numTiles = (dimInner - 1) / MatTileSize + 1;
 
       float acc[WorkPerThread][WorkPerThread];
-      float ACached;
-      float BCached[WorkPerThread];
-
       // Without this initialization strange values show up in acc.
       for (uint innerRow = 0; innerRow < WorkPerThread; innerRow++) {
         for (uint innerCol = 0; innerCol < WorkPerThread; innerCol++) {
@@ -55,50 +52,44 @@ export function makeMatMulPackedSource(workPerThread: number): string {
 
       // Loop over shared dimension.
       for (uint t = 0; t < numTiles; t++) {
+        uint innerOffset = t * MatTileSize;
         // Load one tile of A and B into local memory.
-        for (uint innerRow = 0; innerRow < WorkPerThread; innerRow++) {
-          for (uint innerCol = 0; innerCol < WorkPerThread; innerCol++) {
+        for (uint innerCol = 0; innerCol < WorkPerThread; innerCol++) {
+          for (uint innerRow = 0; innerRow < WorkPerThread; innerRow++) {
             uint inputRow = tileRow + innerRow;
             uint inputCol = tileCol + innerCol;
 
             mm_Asub[inputRow][inputCol] = mm_readA(
-                globalRow + innerRow,
-                t * MatTileSize + tileCol + innerCol);
+                globalRow + innerRow, innerOffset + inputCol);
             mm_Bsub[inputRow][inputCol] = mm_readB(
-                t * MatTileSize + tileRow + innerRow,
-                globalCol + innerCol);
+                innerOffset + inputRow, globalCol + innerCol);
           }
         }
-
         barrier();
 
         // Compute acc values for a single thread.
         for (uint k = 0; k < MatTileSize; k++) {
+          float BCached[WorkPerThread];
           for (uint inner = 0; inner < WorkPerThread; inner++) {
             BCached[inner] = mm_Bsub[k][tileCol + inner];
           }
 
           for (uint innerRow = 0; innerRow < WorkPerThread; innerRow++) {
-            ACached = mm_Asub[tileRow + innerRow][k];
+            float ACached = mm_Asub[tileRow + innerRow][k];
             for (uint innerCol = 0; innerCol < WorkPerThread; innerCol++) {
               acc[innerRow][innerCol] += ACached * BCached[innerCol];
             }
           }
         }
-
         barrier();
       }
 
       for (uint innerRow = 0; innerRow < WorkPerThread; innerRow++) {
         for (uint innerCol = 0; innerCol < WorkPerThread; innerCol++) {
-          uint globalFlatIndex =
-            (globalRow + innerRow) * dimBOuter + (globalCol + innerCol);
-
-          if ((globalCol + innerCol) < dimBOuter &&
-              (globalRow + innerRow) < dimAOuter) {
-            mm_write(globalRow + innerRow,
-                     globalCol + innerCol,
-                     acc[innerRow][innerCol]);
+          uint row = globalRow + innerRow;
+          uint col = globalCol + innerCol;
+          if (row < dimAOuter && col < dimBOuter) {
+            mm_write(row, col, acc[innerRow][innerCol]);
           }
         }
       }
